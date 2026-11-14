@@ -1,0 +1,19 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# Files the program writes next to itself at runtime
+settings.json
+games.json
+crash.log
+*.bad-*.json

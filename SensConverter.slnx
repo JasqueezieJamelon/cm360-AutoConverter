@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SensConverter.App/SensConverter.App.csproj" />
+    <Project Path="src/SensConverter.Core/SensConverter.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SensConverter.Tests/SensConverter.Tests.csproj" />
+  </Folder>
+</Solution>
