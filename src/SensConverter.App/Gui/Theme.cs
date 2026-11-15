@@ -15,6 +15,14 @@ internal static class Theme
     public static readonly Color Bad = Color.FromArgb(240, 112, 112);
     public static readonly Color Selection = Color.FromArgb(52, 72, 102);
 
+    // Disabled controls. Windows picks its own greys for anything switched off and ignores the
+    // colours set on the control, which on a dark theme lands as near-black on near-black. These
+    // are painted on by hand instead: dimmer than a live control, so it still reads as unavailable,
+    // but with enough contrast (about 4:1) to actually be read.
+    public static readonly Color DisabledSurface = Color.FromArgb(32, 32, 38);
+    public static readonly Color DisabledBorder = Color.FromArgb(52, 52, 62);
+    public static readonly Color DisabledText = Color.FromArgb(124, 124, 136);
+
     public static readonly Font Base = new("Segoe UI", 9.75f);
     public static readonly Font Strong = new("Segoe UI Semibold", 9.75f);
     public static readonly Font Heading = new("Segoe UI Semibold", 12f);
@@ -101,6 +109,56 @@ internal static class Theme
         button.Cursor = Cursors.Hand;
         button.AutoSize = false;
         button.Height = Math.Max(button.Height, 30);
+
+        // Removed first so that styling a button twice does not paint it twice.
+        button.Paint -= PaintIfDisabled;
+        button.Paint += PaintIfDisabled;
+    }
+
+    /// <summary>
+    /// Draws a disabled button the way the rest of the theme looks.
+    ///
+    /// Windows paints a disabled button with system greys and ignores whatever colours the button
+    /// carries, which on a dark theme comes out as dark grey text on a barely darker background.
+    /// This runs after that, over the top of it.
+    /// </summary>
+    private static void PaintIfDisabled(object? sender, PaintEventArgs e)
+    {
+        if (sender is not Button button || button.Enabled)
+        {
+            return;
+        }
+
+        Rectangle bounds = button.ClientRectangle;
+
+        using SolidBrush background = new(DisabledSurface);
+        e.Graphics.FillRectangle(background, bounds);
+
+        using Pen border = new(DisabledBorder);
+        e.Graphics.DrawRectangle(border, 0, 0, bounds.Width - 1, bounds.Height - 1);
+
+        TextRenderer.DrawText(
+            e.Graphics,
+            button.Text,
+            button.Font,
+            bounds,
+            DisabledText,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+
+    /// <summary>
+    /// Switches a text box between usable and not, without handing it to Windows to grey out - a
+    /// disabled text box is drawn in system colours and comes out looking like it belongs to a
+    /// different program. Read-only keeps the theme, and still lets the text be selected and copied.
+    /// </summary>
+    public static void SetInputEnabled(TextBox box, bool enabled)
+    {
+        ArgumentNullException.ThrowIfNull(box);
+
+        box.ReadOnly = !enabled;
+        box.BackColor = enabled ? SurfaceAlt : DisabledSurface;
+        box.ForeColor = enabled ? Text : DisabledText;
+        box.TabStop = enabled;
     }
 
     public static Button MakeButton(string text, int width = 120, bool primary = false)

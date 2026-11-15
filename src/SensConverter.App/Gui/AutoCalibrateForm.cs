@@ -39,7 +39,7 @@ internal sealed class AutoCalibrateForm : Form
 
     private readonly TextBox nameBox = new() { Width = 260 };
     private readonly TextBox sensBox = new() { Width = 90 };
-    private readonly TextBox sensYBox = new() { Width = 90, Enabled = false };
+    private readonly TextBox sensYBox = new() { Width = 90 };
     private readonly CheckBox verticalBox = new()
     {
         Text = "This game has a separate vertical sensitivity",
@@ -92,7 +92,6 @@ internal sealed class AutoCalibrateForm : Form
         sensBox.Text = NumberInput.FormatSens(existing?.SensUsedDuringCalibration ?? 1.0);
         sensYBox.Text = NumberInput.FormatSens(existing?.SensUsedDuringCalibrationY ?? 1.0);
         verticalBox.Checked = existing?.HasVertical ?? false;
-        sensYBox.Enabled = verticalBox.Checked;
 
         input.HotkeyPressed += OnHotkeyPressed;
 
@@ -256,11 +255,7 @@ internal sealed class AutoCalibrateForm : Form
 
         sensBox.TextChanged += (_, _) => RefreshSummary();
         sensYBox.TextChanged += (_, _) => RefreshSummary();
-        verticalBox.CheckedChanged += (_, _) =>
-        {
-            sensYBox.Enabled = verticalBox.Checked;
-            RefreshSummary();
-        };
+        verticalBox.CheckedChanged += (_, _) => RefreshSummary();
 
         UpdateStepsText(stepsBody);
     }
@@ -669,10 +664,13 @@ internal sealed class AutoCalibrateForm : Form
         dropButton.Enabled = idle && runList.SelectedItems.Count > 0;
         clearButton.Enabled = idle && runs.Count > 0;
         measureButton.Enabled = true;
-        nameBox.Enabled = idle;
-        sensBox.Enabled = idle;
-        verticalBox.Enabled = idle;
-        sensYBox.Enabled = idle && verticalBox.Checked;
+
+        // The checkbox stays live even while measuring. A run decides whether to do the vertical
+        // stage when it starts, so toggling this mid-run cannot confuse it, and leaving it alone
+        // avoids Windows greying out its label into something unreadable on a dark background.
+        Theme.SetInputEnabled(nameBox, idle);
+        Theme.SetInputEnabled(sensBox, idle);
+        Theme.SetInputEnabled(sensYBox, idle && verticalBox.Checked);
     }
 
     // ---------------- saving ----------------
