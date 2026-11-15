@@ -15,6 +15,8 @@ internal static class Program
         Harness harness = new();
         MathTests.Register(harness);
         CoreTests.Register(harness);
+        AutoMeasureTests.Register(harness);
+        VerticalEntryTests.Register(harness);
         StorageTests.Register(harness);
 
         return harness.Summarise();

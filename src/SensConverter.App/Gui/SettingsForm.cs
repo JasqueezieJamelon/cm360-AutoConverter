@@ -11,6 +11,7 @@ internal sealed class SettingsForm : Form
     private readonly TextBox dpiBox = new() { Width = 120 };
     private readonly TextBox cmBox = new() { Width = 120 };
     private readonly TextBox inchBox = new() { Width = 120 };
+    private readonly TextBox verticalBox = new() { Width = 120 };
     private readonly TextBox hotkeyBox = new() { Width = 160, ReadOnly = true, Cursor = Cursors.Hand };
     private readonly NumericUpDown spinsBox = new() { Width = 120, Minimum = 1, Maximum = 20 };
     private readonly Label errorLabel = Theme.MakeLabel(string.Empty, Theme.Base, Theme.Bad);
@@ -30,7 +31,7 @@ internal sealed class SettingsForm : Form
         StartPosition = FormStartPosition.CenterParent;
         MaximizeBox = false;
         MinimizeBox = false;
-        ClientSize = new Size(640, 512);
+        ClientSize = new Size(640, 556);
         Padding = new Padding(18);
 
         BuildLayout(firstRun);
@@ -38,6 +39,7 @@ internal sealed class SettingsForm : Form
         dpiBox.Text = NumberInput.FormatDistance(settings.Dpi);
         SetDistance(settings.TargetCm360);
         hotkeyBox.Text = hotkey.Display;
+        verticalBox.Text = NumberInput.FormatSens(settings.VerticalMultiplier);
         spinsBox.Value = Math.Clamp(settings.SpinsPerCalibration, 1, 20);
 
         Theme.ApplyToForm(this);
@@ -78,10 +80,12 @@ internal sealed class SettingsForm : Form
         AddRow(grid, "Mouse DPI", dpiBox, "as set on the mouse itself");
         AddRow(grid, "Target distance per 360", cmBox, "cm");
         AddRow(grid, "same thing in inches", inchBox, "in");
+        AddRow(grid, "Vertical sensitivity", verticalBox, "1 = same as horizontal");
         AddRow(grid, "Spin recording hotkey", hotkeyBox, "click, then press a key");
         AddRow(grid, "Spins per calibration", spinsBox, "more spins is steadier");
 
         dpiBox.TextChanged += (_, _) => errorLabel.Text = string.Empty;
+        verticalBox.TextChanged += (_, _) => errorLabel.Text = string.Empty;
         cmBox.TextChanged += OnCmChanged;
         inchBox.TextChanged += OnInchChanged;
         hotkeyBox.KeyDown += OnHotkeyKeyDown;
@@ -280,8 +284,22 @@ internal sealed class SettingsForm : Form
             return;
         }
 
+        if (!NumberInput.TryParsePositive(verticalBox.Text, out double verticalMultiplier))
+        {
+            Fail("Vertical sensitivity needs to be a number above zero. Use 1 to match horizontal.", verticalBox);
+            return;
+        }
+
+        if (verticalMultiplier is < 0.05 or > 20)
+        {
+            Fail("That vertical sensitivity is not realistic. Almost everyone wants 1, and 0.5 to 2 "
+                 + "covers the rest.", verticalBox);
+            return;
+        }
+
         Result.Dpi = dpi;
         Result.TargetCm360 = cm;
+        Result.VerticalMultiplier = verticalMultiplier;
         Result.CalibrationHotkey = hotkey.Display;
         Result.SpinsPerCalibration = (int)spinsBox.Value;
         Result.Configured = true;

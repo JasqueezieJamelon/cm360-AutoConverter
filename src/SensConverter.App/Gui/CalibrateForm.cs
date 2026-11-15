@@ -34,7 +34,7 @@ internal sealed class CalibrateForm : Form
     private readonly Label summaryLabel = Theme.MakeLabel(string.Empty, Theme.Base, Theme.Muted);
     private readonly Label warningLabel = Theme.MakeLabel(string.Empty, Theme.Strong, Theme.Warn);
     private readonly ListView spinList = new();
-    private readonly CheckBox onTopBox = new() { Text = "Keep this window on top", Checked = true, AutoSize = true };
+    private readonly CheckBox onTopBox = new() { Text = "Keep this window on top", Checked = false, AutoSize = true };
     private readonly CheckBox beepBox = new() { Text = "Beep on start and stop", Checked = true, AutoSize = true };
     private readonly Button toggleButton = Theme.MakeButton("Start spin", 150);
     private readonly Button dropButton = Theme.MakeButton("Drop selected", 130);
@@ -66,7 +66,7 @@ internal sealed class CalibrateForm : Form
         MinimizeBox = true;
         ClientSize = new Size(720, 806);
         Padding = new Padding(18);
-        TopMost = true;
+        TopMost = onTopBox.Checked;
 
         BuildLayout();
 

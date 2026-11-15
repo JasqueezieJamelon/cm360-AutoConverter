@@ -59,6 +59,61 @@ internal static class StorageTests
             Harness.AreClose(0.5, game.SensFor(settings), "suggested sens", 1e-4);
         }));
 
+        h.Test("a game measured on both axes survives a save and load", () => InTempFolder(dir =>
+        {
+            Storage storage = new(dir);
+            GameLibrary library = new();
+
+            GameEntry saved = GameEntry.FromCalibration(
+                "Both Axes",
+                @"C:\Games\both\both.exe",
+                "def456",
+                1.5,
+                new[] { 9449.0 },
+                string.Empty,
+                MeasurementMethod.Automatic);
+
+            // Measured with the vertical slider on 2.0 while the horizontal one was on 1.5, and
+            // the view pitched at three quarters the rate it yawed.
+            saved.SetVertical(360.0 / 9449.0 * 1000 * 0.75, 1000, 2.0);
+            library.Upsert(saved);
+            storage.SaveLibrary(library);
+
+            GameEntry loaded = new Storage(dir).LoadLibrary().Games[0];
+
+            Harness.IsTrue(loaded.HasVertical, "vertical measurement kept");
+            Harness.AreClose(saved.CoefficientY, loaded.CoefficientY, "vertical constant");
+            Harness.AreClose(2.0, loaded.SensUsedDuringCalibrationY, "vertical sens used");
+            // The stored ratio compares the two axes per unit of sens, so that it describes the
+            // game itself rather than whatever the sliders happened to be on while measuring:
+            // three quarters of the rate, but reached with a slider 2.0/1.5 higher.
+            Harness.AreClose(0.75 * 1.5 / 2.0, loaded.MeasuredVerticalRatio, "ratio", 1e-6);
+            Harness.AreEqual(MeasurementMethod.Automatic, loaded.Method, "method kept");
+
+            AppSettings settings = new() { Dpi = 1600, TargetCm360 = 30, VerticalMultiplier = 1.0 };
+            Harness.AreClose(
+                saved.RoundedSensYFor(settings),
+                loaded.RoundedSensYFor(settings),
+                "same vertical recommendation after a round trip");
+        }));
+
+        h.Test("the library records the schema it was written with", () => InTempFolder(dir =>
+        {
+            Storage storage = new(dir);
+            storage.SaveLibrary(new GameLibrary());
+
+            string json = File.ReadAllText(storage.LibraryPath);
+            Harness.IsTrue(
+                json.Contains($"\"schemaVersion\": {GameLibrary.CurrentSchemaVersion}"),
+                $"library schema {GameLibrary.CurrentSchemaVersion} written, got: {json}");
+
+            storage.SaveSettings(new AppSettings());
+            string settingsJson = File.ReadAllText(storage.SettingsPath);
+            Harness.IsTrue(
+                settingsJson.Contains($"\"schemaVersion\": {AppSettings.CurrentSchemaVersion}"),
+                $"settings schema {AppSettings.CurrentSchemaVersion} written, got: {settingsJson}");
+        }));
+
         h.Test("missing files give sensible defaults", () => InTempFolder(dir =>
         {
             Storage storage = new(dir);

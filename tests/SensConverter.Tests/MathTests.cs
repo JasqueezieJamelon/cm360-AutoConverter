@@ -73,6 +73,77 @@ internal static class MathTests
             Harness.AreClose(30, SensMath.InchesToCm(SensMath.CmToInches(30)), "round-trip");
         });
 
+        h.Section("Rounding to two decimals");
+
+        h.Test("a sens is cut to two decimals", () =>
+        {
+            Harness.AreClose(0.51, SensMath.RoundSens(0.5123), "rounds down");
+            Harness.AreClose(0.52, SensMath.RoundSens(0.5167), "rounds up");
+            Harness.AreClose(3.14, SensMath.RoundSens(3.14159), "pi");
+            Harness.AreClose(12.35, SensMath.RoundSens(12.345), "halfway goes up");
+            Harness.AreClose(7, SensMath.RoundSens(7.0), "a whole number stays whole");
+        });
+
+        h.Test("a sens that is already short is left alone", () =>
+        {
+            Harness.AreClose(0.5, SensMath.RoundSens(0.5), "one decimal");
+            Harness.AreClose(2.25, SensMath.RoundSens(2.25), "exactly two");
+        });
+
+        h.Test("a game needing a tiny sens is not rounded away to zero", () =>
+        {
+            // Rounding 0.004 to two decimals gives 0.00, and a game set to zero does not turn at
+            // all - so these keep two significant figures instead.
+            Harness.IsTrue(SensMath.NeedsMoreThanTwoDecimals(0.004123), "0.004 needs more decimals");
+            Harness.AreClose(0.0041, SensMath.RoundSens(0.004123), "two significant figures");
+            Harness.IsTrue(SensMath.RoundSens(0.0000812) > 0, "never zero");
+
+            Harness.IsFalse(SensMath.NeedsMoreThanTwoDecimals(0.01), "0.01 is fine as it is");
+            Harness.IsFalse(SensMath.NeedsMoreThanTwoDecimals(0.5), "so is a normal sens");
+        });
+
+        h.Test("rubbish in gives zero rather than a wrong number", () =>
+        {
+            Harness.AreClose(0, SensMath.RoundSens(0), "zero");
+            Harness.AreClose(0, SensMath.RoundSens(-1), "negative");
+            Harness.AreClose(0, SensMath.RoundSens(double.NaN), "NaN");
+            Harness.AreClose(0, SensMath.RoundSens(double.PositiveInfinity), "infinity");
+        });
+
+        h.Test("the cost of rounding is reported honestly", () =>
+        {
+            // A game whose ideal sens lands exactly on two decimals loses nothing to rounding.
+            double exactCounts = 0.5 * SensMath.CountsPer360FromCm(30, 1600);
+            double clean = SensMath.CoefficientFromCalibration(exactCounts, 1.0);
+            Harness.IsTrue(SensMath.RoundingErrorFraction(clean, 30, 1600) < 1e-9, "an exact answer loses nothing");
+
+            // The README's worked example is very nearly such a game, but not quite: 9449 counts
+            // asks for 0.500009, so rounding to 0.50 costs about two thousandths of a percent.
+            double worked = SensMath.CoefficientFromCalibration(9449, 1.0);
+            Harness.IsTrue(SensMath.RoundingErrorFraction(worked, 30, 1600) < 1e-4, "and a near-exact one almost nothing");
+
+            // A game whose ideal sens is 0.834 has to settle for 0.83, which is a real difference
+            // and the program should be able to say how big it is.
+            double awkward = SensMath.CoefficientFromCalibration(11331, 1.0);
+            double error = SensMath.RoundingErrorFraction(awkward, 30, 1600);
+            Harness.IsTrue(error > 0, "an awkward answer does lose something");
+            Harness.IsTrue(error < 0.01, $"but under 1 percent, got {error:P2}");
+        });
+
+        h.Test("the rounded sens really does produce the distance claimed for it", () =>
+        {
+            double c = SensMath.CoefficientFromCalibration(11331, 1.0);
+            double rounded = SensMath.RoundSens(SensMath.SensForCm360(c, 30, 1600));
+            double actual = SensMath.Cm360ForSens(c, rounded, 1600);
+
+            Harness.AreClose(
+                SensMath.RoundingErrorFraction(c, 30, 1600),
+                Math.Abs(actual - 30) / 30,
+                "the reported error matches the real one");
+        });
+
+        h.Section("SensMath guards");
+
         h.Test("nonsense inputs are rejected rather than producing silent garbage", () =>
         {
             Harness.Throws<ArgumentOutOfRangeException>(() => SensMath.CountsPer360FromCm(0, 1600), "zero cm");

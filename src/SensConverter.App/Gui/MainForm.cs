@@ -25,6 +25,7 @@ internal sealed class MainForm : Form
     private readonly Label detailSens = Theme.MakeLabel(string.Empty, Theme.Huge, Theme.Good);
     private readonly Label detailBody = Theme.MakeLabel(string.Empty, Theme.Base, Theme.Muted);
     private readonly Button copyButton = Theme.MakeButton("Copy number", 130);
+    private readonly Button copyVerticalButton = Theme.MakeButton("Copy vertical", 130);
     private readonly Button relocateButton = Theme.MakeButton("Find exe again", 130);
 
     private readonly Button recalibrateButton = Theme.MakeButton("Recalibrate", 120);
@@ -109,16 +110,19 @@ internal sealed class MainForm : Form
         detailCaption.Location = new Point(16, 54);
         detailSens.Location = new Point(14, 74);
         copyButton.Location = new Point(16, 138);
-        copyButton.Click += (_, _) => CopySens();
-        relocateButton.Location = new Point(154, 138);
+        copyButton.Click += (_, _) => CopySens(vertical: false);
+        copyVerticalButton.Location = new Point(154, 138);
+        copyVerticalButton.Click += (_, _) => CopySens(vertical: true);
+        relocateButton.Location = new Point(16, 172);
         relocateButton.Click += (_, _) => RelocateSelected();
-        detailBody.Location = new Point(16, 184);
+        detailBody.Location = new Point(16, 212);
         detailBody.MaximumSize = new Size(296, 0);
 
         detail.Controls.Add(detailName);
         detail.Controls.Add(detailCaption);
         detail.Controls.Add(detailSens);
         detail.Controls.Add(copyButton);
+        detail.Controls.Add(copyVerticalButton);
         detail.Controls.Add(relocateButton);
         detail.Controls.Add(detailBody);
 
@@ -130,8 +134,9 @@ internal sealed class MainForm : Form
         gameList.Dock = DockStyle.Fill;
         gameList.HeaderStyle = ColumnHeaderStyle.Nonclickable;
         gameList.OwnerDraw = true;
-        gameList.Columns.Add("Game", 240);
-        gameList.Columns.Add("Sens to use", 110);
+        gameList.Columns.Add("Game", 220);
+        gameList.Columns.Add("Sens to use", 100);
+        gameList.Columns.Add("Vertical", 90);
         gameList.Columns.Add("Counts per 360", 120);
         gameList.Columns.Add("Calibrated", 110);
         gameList.DrawColumnHeader += OnDrawHeader;
@@ -259,7 +264,8 @@ internal sealed class MainForm : Form
                 ForeColor = missing ? Theme.Warn : Theme.Text,
             };
 
-            item.SubItems.Add(game.IsCalibrated ? NumberInput.FormatSens(game.SensFor(settings)) : "-");
+            item.SubItems.Add(game.IsCalibrated ? NumberInput.FormatSens(game.RoundedSensFor(settings)) : "-");
+            item.SubItems.Add(game.HasVertical ? NumberInput.FormatSens(game.RoundedSensYFor(settings)) : "-");
             item.SubItems.Add(NumberInput.FormatCounts(game.Counts360));
             item.SubItems.Add(game.CalibratedOn.ToLocalTime().ToString("d MMM yyyy", CultureInfo.CurrentCulture));
             gameList.Items.Add(item);
@@ -299,6 +305,8 @@ internal sealed class MainForm : Form
         noteButton.Enabled = has;
         removeButton.Enabled = has;
         copyButton.Enabled = has;
+        copyVerticalButton.Visible = game?.HasVertical ?? false;
+        copyVerticalButton.Enabled = game?.HasVertical ?? false;
         relocateButton.Enabled = has;
 
         if (game is null)
@@ -312,11 +320,12 @@ internal sealed class MainForm : Form
             return;
         }
 
-        double sens = game.SensFor(settings);
-        double actualCm = SensMath.Cm360ForSens(game.Coefficient, sens, settings.Dpi);
+        double sens = game.RoundedSensFor(settings);
 
         detailName.Text = game.Name;
-        detailCaption.Text = "Set the in-game sensitivity to";
+        detailCaption.Text = game.HasVertical
+            ? "Set the horizontal sensitivity to"
+            : "Set the in-game sensitivity to";
         detailSens.Text = NumberInput.FormatSens(sens);
 
         string missing = FileExists(game.ExePath)
@@ -325,11 +334,25 @@ internal sealed class MainForm : Form
 
         string note = string.IsNullOrWhiteSpace(game.Notes) ? string.Empty : $"\n\nNote: {game.Notes}";
 
+        string vertical = game.HasVertical
+            ? $"Vertical sensitivity: {NumberInput.FormatSens(game.RoundedSensYFor(settings))}, giving " +
+              $"{NumberInput.FormatDistance(game.ActualCm360VerticalFor(settings))} cm/360 up and down. " +
+              $"This game's vertical axis measured " +
+              $"{game.MeasuredVerticalRatio.ToString("0.00", CultureInfo.CurrentCulture)}x its horizontal one.\n\n"
+            : string.Empty;
+
+        string how = game.Method == MeasurementMethod.Automatic
+            ? $"Measured automatically from {game.Spins.Count} " +
+              $"run{(game.Spins.Count == 1 ? string.Empty : "s")}"
+            : $"Measured by hand from {game.Spins.Count} " +
+              $"spin{(game.Spins.Count == 1 ? string.Empty : "s")}";
+
         detailBody.Text =
-            $"Measured at in-game sens {NumberInput.FormatSens(game.SensUsedDuringCalibration)}, " +
-            $"where a 360 took {NumberInput.FormatCounts(game.Counts360)} counts " +
-            $"({game.Spins.Count} spin{(game.Spins.Count == 1 ? string.Empty : "s")}).\n\n" +
-            $"That gives {NumberInput.FormatDistance(actualCm)} cm/360 at your {NumberInput.FormatDistance(settings.Dpi)} DPI.\n\n" +
+            $"{how}, at in-game sens {NumberInput.FormatSens(game.SensUsedDuringCalibration)}, " +
+            $"where a 360 took {NumberInput.FormatCounts(game.Counts360)} counts.\n\n" +
+            $"That gives {NumberInput.FormatDistance(game.ActualCm360For(settings))} cm/360 " +
+            $"at your {NumberInput.FormatDistance(settings.Dpi)} DPI.\n\n" +
+            vertical +
             $"Game constant: {game.Coefficient.ToString("0.######", CultureInfo.CurrentCulture)} degrees per count per unit of sens.\n\n" +
             $"Calibrated {game.CalibratedOn.ToLocalTime().ToString("d MMM yyyy, HH:mm", CultureInfo.CurrentCulture)}.\n\n" +
             $"{game.ExePath}{missing}{note}";
@@ -412,7 +435,58 @@ internal sealed class MainForm : Form
             return;
         }
 
-        using CalibrateForm form = new(input, settings, exePath, hash);
+        Measure(exePath, hash, existing: null);
+    }
+
+    /// <summary>
+    /// Asks how the game should be measured, then runs that wizard. Automatic is offered first
+    /// because it is far less work, but it is not always the right answer - it moves the mouse,
+    /// which is a problem in an online game, so the choice is put to the user every time rather
+    /// than remembered.
+    /// </summary>
+    private void Measure(string exePath, string exeHash, GameEntry? existing)
+    {
+        string name = existing?.Name ?? ExeIdentity.PrettyNameFromPath(exePath);
+
+        DialogResult answer = MessageBox.Show(
+            this,
+            $"How should {name} be measured?\n\n"
+            + "Automatically: the program turns the view itself and reads the screen. Takes a few "
+            + "seconds per run and needs no spinning, but it moves the mouse, which anti-cheat "
+            + "software in online games can object to.\n\n"
+            + "By hand: you spin a full circle yourself a few times. Slower, works anywhere, and "
+            + "sends nothing to the game.\n\n"
+            + "Yes for automatic, No to do it by hand.",
+            "Measure " + name,
+            MessageBoxButtons.YesNoCancel,
+            MessageBoxIcon.Question);
+
+        if (answer == DialogResult.Cancel)
+        {
+            return;
+        }
+
+        if (answer == DialogResult.Yes)
+        {
+            if (!AutoCalibrateForm.EnsureConsent(this, settings))
+            {
+                return;
+            }
+
+            storage.SaveSettings(settings);
+
+            using AutoCalibrateForm auto = new(input, settings, exePath, exeHash, existing);
+            if (auto.ShowDialog(this) == DialogResult.OK && auto.Entry is not null)
+            {
+                library.Upsert(auto.Entry);
+                Save();
+                RefreshList(auto.Entry.Id);
+            }
+
+            return;
+        }
+
+        using CalibrateForm form = new(input, settings, exePath, exeHash, existing);
         if (form.ShowDialog(this) == DialogResult.OK && form.Entry is not null)
         {
             library.Upsert(form.Entry);
@@ -429,16 +503,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void Recalibrate(GameEntry game)
-    {
-        using CalibrateForm form = new(input, settings, game.ExePath, game.ExeHash, game);
-        if (form.ShowDialog(this) == DialogResult.OK && form.Entry is not null)
-        {
-            library.Upsert(form.Entry);
-            Save();
-            RefreshList(form.Entry.Id);
-        }
-    }
+    private void Recalibrate(GameEntry game) => Measure(game.ExePath, game.ExeHash, game);
 
     private void RelocateSelected()
     {
@@ -548,17 +613,25 @@ internal sealed class MainForm : Form
         RefreshList(selectId: null);
     }
 
-    private void CopySens()
+    private void CopySens(bool vertical)
     {
         if (Selected is not { } game)
         {
             return;
         }
 
+        if (vertical && !game.HasVertical)
+        {
+            return;
+        }
+
         try
         {
-            Clipboard.SetText(NumberInput.FormatSens(game.SensFor(settings)));
-            detailCaption.Text = "Copied - set the in-game sensitivity to";
+            double sens = vertical ? game.RoundedSensYFor(settings) : game.RoundedSensFor(settings);
+            Clipboard.SetText(NumberInput.FormatSens(sens));
+            detailCaption.Text = vertical
+                ? "Copied the vertical number. Horizontal is"
+                : "Copied - set the in-game sensitivity to";
         }
         catch (Exception ex) when (ex is ExternalException or ThreadStateException)
         {

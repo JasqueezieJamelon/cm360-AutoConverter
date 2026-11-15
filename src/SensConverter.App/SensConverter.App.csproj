@@ -11,9 +11,28 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>false</SelfContained>
+
+    <!--
+      Published as one standalone exe with .NET built into it, so a player downloads a single file
+      and runs it. Nothing to install, and nothing to go wrong because the wrong .NET version is on
+      the machine.
+
+      The cost is size: .NET itself is most of the exe. Compression roughly halves that, at the
+      price of a slightly slower first start while it unpacks.
+
+      Trimming would cut it down further but is not supported for WinForms - it strips types that
+      are only ever reached by reflection, and the result fails at runtime rather than at build
+      time, so it is deliberately left off.
+
+      A build that relies on an installed .NET runtime is still possible when wanted:
+      dotnet publish src/SensConverter.App -c Release -p:SelfContained=false -p:EnableCompressionInSingleFile=false
+    -->
+    <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
-    <Version>0.1.0</Version>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <Version>0.2.0</Version>
     <Product>Sensitivity Converter</Product>
   </PropertyGroup>
 

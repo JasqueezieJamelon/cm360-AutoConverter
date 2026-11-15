@@ -3,7 +3,7 @@ namespace SensConverter.Core;
 /// <summary>The saved list of calibrated games.</summary>
 public sealed class GameLibrary
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 

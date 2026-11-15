@@ -3,7 +3,7 @@ namespace SensConverter.Core;
 /// <summary>Your profile: the mouse and the feel you want, and nothing game-specific.</summary>
 public sealed class AppSettings
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
@@ -12,6 +12,13 @@ public sealed class AppSettings
 
     /// <summary>Wanted sweep distance for a full 360, in centimetres.</summary>
     public double TargetCm360 { get; set; } = 30;
+
+    /// <summary>
+    /// How sensitive you want vertical to be compared with horizontal. 1.0 means the same sweep
+    /// distance both ways, which is what most people want. 0.5 means vertical moves half as far
+    /// for the same hand movement.
+    /// </summary>
+    public double VerticalMultiplier { get; set; } = 1.0;
 
     /// <summary>Global key that starts and stops a spin recording.</summary>
     public string CalibrationHotkey { get; set; } = "F8";
@@ -22,14 +29,25 @@ public sealed class AppSettings
     /// <summary>False until the first-run setup screen has been completed once.</summary>
     public bool Configured { get; set; }
 
+    /// <summary>
+    /// Set once the user has read and accepted the warning on automatic measurement, which moves
+    /// the mouse itself. Off until then, so it can never happen by accident.
+    /// </summary>
+    public bool AutoMeasureAccepted { get; set; }
+
+    /// <summary>The vertical sweep distance that <see cref="VerticalMultiplier"/> works out to.</summary>
+    public double TargetCm360Vertical => TargetCm360 / VerticalMultiplier;
+
     public AppSettings Clone() => new()
     {
         SchemaVersion = SchemaVersion,
         Dpi = Dpi,
         TargetCm360 = TargetCm360,
+        VerticalMultiplier = VerticalMultiplier,
         CalibrationHotkey = CalibrationHotkey,
         SpinsPerCalibration = SpinsPerCalibration,
         Configured = Configured,
+        AutoMeasureAccepted = AutoMeasureAccepted,
     };
 
     /// <summary>Clamps anything nonsensical that was hand-edited into the json.</summary>
@@ -45,8 +63,14 @@ public sealed class AppSettings
             TargetCm360 = 30;
         }
 
+        if (!IsUsable(VerticalMultiplier))
+        {
+            VerticalMultiplier = 1.0;
+        }
+
         Dpi = Math.Clamp(Dpi, 1, 100_000);
         TargetCm360 = Math.Clamp(TargetCm360, 0.1, 10_000);
+        VerticalMultiplier = Math.Clamp(VerticalMultiplier, 0.01, 100);
         SpinsPerCalibration = Math.Clamp(SpinsPerCalibration, 1, 20);
 
         if (string.IsNullOrWhiteSpace(CalibrationHotkey) || !Hotkey.TryParse(CalibrationHotkey, out _, out _))
