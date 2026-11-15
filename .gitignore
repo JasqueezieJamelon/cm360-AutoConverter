@@ -17,3 +17,6 @@ settings.json
 games.json
 crash.log
 *.bad-*.json
+
+# Local test build, not part of the repo
+test-build/

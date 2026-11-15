@@ -57,6 +57,7 @@ internal sealed class AutoCalibrateForm : Form
     private readonly Button measureButton = Theme.MakeButton("Measure now", 150);
     private readonly Button dropButton = Theme.MakeButton("Drop selected", 130);
     private readonly Button clearButton = Theme.MakeButton("Clear all", 110);
+    private readonly Button detailsButton = Theme.MakeButton("Run details", 110);
     private readonly Button saveButton = Theme.MakeButton("Save", 110, primary: true);
 
     private CancellationTokenSource? cancellation;
@@ -241,10 +242,11 @@ internal sealed class AutoCalibrateForm : Form
         measureButton.Click += (_, _) => StartOrStop();
         dropButton.Click += (_, _) => DropSelected();
         clearButton.Click += (_, _) => ClearAll();
+        detailsButton.Click += (_, _) => SaveRunDetails();
         saveButton.Click += OnSave;
 
         Panel buttons = Theme.MakeButtonBar(
-            new[] { measureButton, dropButton, clearButton },
+            new[] { measureButton, dropButton, clearButton, detailsButton },
             new[] { cancel, saveButton });
 
         Controls.Add(buttons);
@@ -455,10 +457,44 @@ internal sealed class AutoCalibrateForm : Form
             LooksNonLinear = result.LooksNonLinear,
         });
 
+        // Deliberately not saved here. A run that worked still has frames worth looking at when a
+        // number comes out wrong, but writing half a megabyte of them after every measurement
+        // would quietly fill the folder up, so it waits to be asked.
         statusLabel.Text = $"Measured: {NumberInput.FormatCounts(result.Counts360)} counts for a 360.";
         statusLabel.ForeColor = Theme.Good;
         Beep(success: true);
         RefreshEverything();
+    }
+
+    /// <summary>
+    /// Writes out what the last run actually saw. Worth having even when a run succeeded: a
+    /// measurement that stopped short of a full circle finishes with a number that looks perfectly
+    /// reasonable, and the captured frames are the only way to tell.
+    /// </summary>
+    private void SaveRunDetails()
+    {
+        string? saved = lastDiagnostics?.Save(dataDirectory);
+
+        if (saved is null)
+        {
+            warningLabel.Text = "There was nothing to save - measure something first.";
+            return;
+        }
+
+        warningLabel.Text = "What the last run saw was saved to:" + Environment.NewLine + saved;
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = saved,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        {
+            // The path is on screen either way.
+        }
     }
 
     private void StopMeasuring()
@@ -679,6 +715,7 @@ internal sealed class AutoCalibrateForm : Form
         saveButton.Enabled = idle && Analysis.HasAnySpins && TryReadSens(out _, out _, out _);
         dropButton.Enabled = idle && runList.SelectedItems.Count > 0;
         clearButton.Enabled = idle && runs.Count > 0;
+        detailsButton.Enabled = idle && lastDiagnostics is not null;
         measureButton.Enabled = true;
 
         // The checkbox stays live even while measuring. A run decides whether to do the vertical

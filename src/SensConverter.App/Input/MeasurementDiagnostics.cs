@@ -19,11 +19,15 @@ namespace SensConverter.App.Input;
 /// </summary>
 internal sealed class MeasurementDiagnostics
 {
-    /// <summary>Frames kept. Enough to see the pattern, few enough to stay small.</summary>
-    public const int MaxFrames = 14;
+    /// <summary>How many frames from the start of a run are kept.</summary>
+    public const int FirstFrames = 4;
+
+    /// <summary>And how many from the end, where a run that stopped too early gives itself away.</summary>
+    public const int LastFrames = 10;
 
     private readonly List<string> lines = new();
-    private readonly List<(string Name, GrayFrame Frame)> frames = new();
+    private readonly List<(string Name, GrayFrame Frame)> opening = new();
+    private readonly Queue<(string Name, GrayFrame Frame)> closing = new();
     private readonly DateTimeOffset started = DateTimeOffset.Now;
 
     public void Note(string line)
@@ -31,14 +35,25 @@ internal sealed class MeasurementDiagnostics
         lines.Add($"[{(DateTimeOffset.Now - started).TotalMilliseconds,7:F0} ms] {line}");
     }
 
-    /// <summary>Keeps a captured frame, up to the limit.</summary>
+    /// <summary>
+    /// Keeps a captured frame: the opening ones, and a rolling window of the most recent. The
+    /// middle of a long turn says little, while the start and the finish are where a measurement
+    /// that stopped in the wrong place shows it - the last frame should look like the first.
+    /// </summary>
     public void Keep(string name, GrayFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
 
-        if (frames.Count < MaxFrames)
+        if (opening.Count < FirstFrames)
         {
-            frames.Add((name, frame));
+            opening.Add((name, frame));
+            return;
+        }
+
+        closing.Enqueue((name, frame));
+        while (closing.Count > LastFrames)
+        {
+            closing.Dequeue();
         }
     }
 
@@ -70,13 +85,13 @@ internal sealed class MeasurementDiagnostics
 
             File.WriteAllText(Path.Combine(directory, "log.txt"), text.ToString());
 
-            for (int i = 0; i < frames.Count; i++)
+            (string Name, GrayFrame Frame)[] all = opening.Concat(closing).ToArray();
+            for (int i = 0; i < all.Length; i++)
             {
-                (string name, GrayFrame frame) = frames[i];
                 string file = Path.Combine(
                     directory,
-                    string.Create(CultureInfo.InvariantCulture, $"{i:00}-{Sanitise(name)}.png"));
-                SavePng(frame, file);
+                    string.Create(CultureInfo.InvariantCulture, $"{i:00}-{Sanitise(all[i].Name)}.png"));
+                SavePng(all[i].Frame, file);
             }
 
             return directory;

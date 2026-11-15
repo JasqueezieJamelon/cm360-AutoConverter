@@ -62,6 +62,7 @@ internal static class AutoMeasureRunner
         }
 
         diagnostics?.Keep("start", first);
+        double[] startProfile = first.ColumnProfile(1.0);
         double[] previousProfile = first.ColumnProfile(1.0);
         diagnostics?.Note(
             $"captured {first.Width}x{first.Height}, detail {GrayFrame.Detail(previousProfile):F2}");
@@ -113,10 +114,19 @@ internal static class AutoMeasureRunner
                 ShiftMatch seen = ImageShift.Find(
                     previousProfile, profile, Math.Max(ImageShift.MinOverlap, frame.Width / 2));
 
+                // And how much this frame looks like the one the turn started from. This is the
+                // number that decides when a turn is finished, so a run that stopped in the wrong
+                // place is visible here as a match that was believed too readily.
+                ShiftMatch versusStart = ImageShift.Find(
+                    startProfile, profile, Math.Max(ImageShift.MinOverlap, frame.Width / 3));
+
                 diagnostics.Note(
-                    $"sent {step.Dx,6} counts -> picture moved {seen.Shift,8:F2} px "
-                    + $"(score {seen.Score:F2}, confidence {seen.Confidence:F2}, "
-                    + $"{(seen.IsReliable ? "reliable" : "NOT reliable")})");
+                    $"{spin.Phase,-8} sent {step.Dx,6} -> moved {seen.Shift,8:F2} px "
+                    + $"(score {seen.Score:F2} conf {seen.Confidence:F2} "
+                    + $"{(seen.IsReliable ? "ok " : "BAD")})"
+                    + $" | vs start: shift {versusStart.Shift,8:F2} score {versusStart.Score:F2} "
+                    + $"conf {versusStart.Confidence:F2}"
+                    + $" | total {spin.CountsSent,7} counts, progress {spin.Progress:P0}");
 
                 diagnostics.Keep($"after-{step.Dx}", frame);
             }
@@ -126,9 +136,18 @@ internal static class AutoMeasureRunner
             onProgress?.Invoke(spin.Progress * (measureVertical ? 0.8 : 1.0));
         }
 
-        if (spin.Phase != AutoPhase.Done)
+        diagnostics?.Note("foreground at end: " + ScreenCapture.DescribeForeground());
+
+        if (spin.Phase == AutoPhase.Done)
         {
-            diagnostics?.Note("foreground at end: " + ScreenCapture.DescribeForeground());
+            diagnostics?.Note(
+                $"FINISHED: {spin.Counts360:F0} counts for a 360, after {spin.CountsSent} counts sent "
+                + $"over {spin.Steps} steps ({spin.PixelsPerCount:F4} px per count). "
+                + $"If the view visibly did not turn a full circle, this number is wrong and the "
+                + $"last frame above will not look like the first.");
+        }
+        else
+        {
             diagnostics?.Note("gave up: " + spin.Failure);
         }
 
