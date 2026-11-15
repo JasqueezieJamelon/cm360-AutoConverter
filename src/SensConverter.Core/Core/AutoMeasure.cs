@@ -78,6 +78,30 @@ public sealed class AutoMeasureOptions
     public int MaxSteps { get; init; } = 400;
 
     /// <summary>
+    /// Deciding the view has come back round ends the measurement and fixes the answer, so it is
+    /// held to a higher standard than merely following the picture from one step to the next. A
+    /// view that really has returned looks almost exactly like the start; a chance resemblance
+    /// between two unrelated parts of the world does not.
+    ///
+    /// Getting this wrong is the worst failure available, because it produces a confident number
+    /// that is simply wrong rather than an error the user can see.
+    /// </summary>
+    public double MinWrapScore { get; init; } = 0.80;
+
+    /// <summary>The certainty a wrap match must also reach.</summary>
+    public double MinWrapConfidence { get; init; } = 0.20;
+
+    /// <summary>
+    /// How many screen widths of panorama a full turn may plausibly be. Fixed by geometry: for any
+    /// field of view between about 60 and 120 degrees a 360 is between roughly 1.8 and 5.5 screens
+    /// wide, so an answer outside this range did not come from a real turn.
+    /// </summary>
+    public double MinPanoramaWidths { get; init; } = 1.6;
+
+    /// <summary>The other end of that range.</summary>
+    public double MaxPanoramaWidths { get; init; } = 6.5;
+
+    /// <summary>
     /// The picture needs some texture to match on. A flat wall or a loading screen scores near
     /// zero and cannot be measured against.
     /// </summary>
@@ -467,7 +491,7 @@ public sealed class AutoSpinSession
         int searchRange = Math.Max(ImageShift.MinOverlap, (int)Math.Round(options.MaxProbeShiftFraction * width));
         ShiftMatch wrap = ImageShift.Find(reference, profile, searchRange);
 
-        if (!wrap.IsReliable)
+        if (!wrap.IsReliable || wrap.Score < options.MinWrapScore || wrap.Confidence < options.MinWrapConfidence)
         {
             return;
         }
@@ -480,6 +504,15 @@ public sealed class AutoSpinSession
         if (total <= 0)
         {
             Fail("The measurement came out as a negative turn, which cannot be right.");
+            return;
+        }
+
+        // Last check, from geometry alone: a full turn is only ever a few screen widths of
+        // scenery. An answer outside that came from two unrelated places happening to look alike,
+        // not from the view returning, and it would be wrong without looking wrong.
+        double panoramaWidths = total * PixelsPerCount / width;
+        if (panoramaWidths < options.MinPanoramaWidths || panoramaWidths > options.MaxPanoramaWidths)
+        {
             return;
         }
 

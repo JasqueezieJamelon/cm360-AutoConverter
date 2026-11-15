@@ -29,6 +29,7 @@ internal sealed class AutoCalibrateForm : Form
         public bool HasVertical => VerticalRatio > 0;
     }
 
+    private readonly string dataDirectory;
     private readonly GlobalInput input;
     private readonly AppSettings settings;
     private readonly string exePath;
@@ -59,6 +60,7 @@ internal sealed class AutoCalibrateForm : Form
     private readonly Button saveButton = Theme.MakeButton("Save", 110, primary: true);
 
     private CancellationTokenSource? cancellation;
+    private MeasurementDiagnostics? lastDiagnostics;
     private bool measuring;
     private bool updatingList;
 
@@ -67,11 +69,13 @@ internal sealed class AutoCalibrateForm : Form
         AppSettings settings,
         string exePath,
         string exeHash,
+        string dataDirectory,
         GameEntry? existing = null)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(settings);
 
+        this.dataDirectory = dataDirectory;
         this.input = input;
         this.settings = settings;
         this.exePath = exePath;
@@ -356,7 +360,10 @@ internal sealed class AutoCalibrateForm : Form
         progress.Value = 0;
         UpdateButtons();
 
-        Task.Run(() => AutoMeasureRunner.Run(wantVertical, ReportProgress, token), token)
+        MeasurementDiagnostics diagnostics = new();
+        lastDiagnostics = diagnostics;
+
+        Task.Run(() => AutoMeasureRunner.Run(wantVertical, ReportProgress, token, diagnostics), token)
             .ContinueWith(
                 task => OnMeasurementFinished(task),
                 CancellationToken.None,
@@ -426,7 +433,16 @@ internal sealed class AutoCalibrateForm : Form
         {
             statusLabel.Text = "Could not measure.";
             statusLabel.ForeColor = Theme.Bad;
-            warningLabel.Text = result.Error ?? string.Empty;
+
+            // A failure here is nearly impossible to diagnose from the message alone, so the run
+            // writes out what it actually saw and points the user at it.
+            string? saved = lastDiagnostics?.Save(dataDirectory);
+            string where = saved is null
+                ? string.Empty
+                : Environment.NewLine + Environment.NewLine
+                  + "What the program saw while trying was saved to:" + Environment.NewLine + saved;
+
+            warningLabel.Text = (result.Error ?? string.Empty) + where;
             Beep(success: false);
             RefreshEverything();
             return;

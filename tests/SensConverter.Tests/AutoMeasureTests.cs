@@ -167,6 +167,46 @@ internal static class AutoMeasureTests
             Harness.IsFalse(match.IsReliable, "so it is not trusted");
         });
 
+        h.Test("a smooth, real-looking picture is trusted", () =>
+        {
+            // The one that got away. Real scenery is mostly broad shapes, not fine noise, so its
+            // match peak is wide - a photograph lined up against itself still scores over 0.9 well
+            // away from the correct offset. Counting that slope as a rival made every match of
+            // every ordinary scene look unreliable, and automatic measurement failed on every game
+            // with "could not find a mouse movement this game responds to".
+            double[] smooth = SmoothScenery(480, seed: 11);
+
+            ShiftMatch still = ImageShift.Find(smooth, smooth, 240);
+            Harness.IsTrue(still.Score > 0.99, $"identical frames score high, got {still.Score:F3}");
+            Harness.IsTrue(
+                still.IsReliable,
+                $"identical frames must be trusted (score {still.Score:F3}, confidence {still.Confidence:F3})");
+
+            foreach (double by in new[] { -40.0, -12.5, 7.0, 33.0 })
+            {
+                ShiftMatch moved = ImageShift.Find(smooth, Shift(smooth, by), 240);
+                Harness.IsTrue(
+                    moved.IsReliable,
+                    $"a shift of {by} must be trusted (score {moved.Score:F3}, confidence {moved.Confidence:F3})");
+                Harness.AreClose(by, moved.Shift, $"shift of {by} on smooth scenery", 0.6);
+            }
+        });
+
+        h.Test("a gentle gradient across the whole frame is still trusted", () =>
+        {
+            // The hardest honest case: almost no detail beyond one broad ramp, which is what a
+            // wall lit from one side looks like. The peak then covers the entire search range.
+            double[] ramp = new double[400];
+            for (int i = 0; i < ramp.Length; i++)
+            {
+                ramp[i] = 60 + (i * 0.35) + (12 * Math.Sin(i / 90.0));
+            }
+
+            ShiftMatch match = ImageShift.Find(ramp, Shift(ramp, 15), 80);
+            Harness.IsTrue(match.IsReliable, $"confidence {match.Confidence:F3}, score {match.Score:F3}");
+            Harness.AreClose(15, match.Shift, "shift on a gradient", 1.0);
+        });
+
         h.Test("mismatched profile lengths are refused", () =>
             Harness.Throws<ArgumentException>(
                 () => ImageShift.Find(new double[100], new double[120], 10),
@@ -228,6 +268,23 @@ internal static class AutoMeasureTests
             Harness.IsTrue(
                 Within(game.PixelsPerCount, session.PixelsPerCount, 0.1),
                 $"expected about {game.PixelsPerCount:F4} px per count, got {session.PixelsPerCount:F4}");
+        });
+
+        h.Test("it works at any field of view a game might use", () =>
+        {
+            // A narrow field of view spreads a turn over more screens of scenery, a wide one over
+            // fewer. The sanity check that rejects an impossible answer has to leave room for both
+            // ends of what a real game offers.
+            foreach (double widths in new[] { 2.0, 3.3, 5.2 })
+            {
+                FakeGame game = new(counts360: 9449, panoramaWidths: widths);
+                AutoSpinSession session = game.RunSpin();
+
+                Harness.AreEqual(AutoPhase.Done, session.Phase, session.Failure ?? $"finished at {widths} widths");
+                Harness.IsTrue(
+                    Within(9449, session.Counts360, 0.02),
+                    $"at {widths} screen widths per turn, expected about 9449, got {session.Counts360:F0}");
+            }
         });
 
         h.Test("a blank screen is refused with something the user can act on", () =>
@@ -425,6 +482,39 @@ internal static class AutoMeasureTests
     /// <summary>True when <paramref name="actual"/> is within a fraction of <paramref name="expected"/>.</summary>
     private static bool Within(double expected, double actual, double fraction)
         => Math.Abs(actual - expected) <= Math.Abs(expected) * fraction;
+
+    /// <summary>
+    /// Scenery that behaves like a real picture rather than like noise: a few broad shapes with
+    /// finer detail laid over them. The broad shapes are the point - they are what makes a real
+    /// match peak wide, and a test built only on fine noise never exercises that.
+    /// </summary>
+    private static double[] SmoothScenery(int length, int seed)
+    {
+        Random random = new(seed);
+        double[] profile = new double[length];
+
+        // A handful of slow waves at random phases: hills, walls, large blocks of light and shade.
+        for (int wave = 0; wave < 6; wave++)
+        {
+            double period = length / (2.0 + (wave * 2.5));
+            double phase = random.NextDouble() * Math.PI * 2;
+            double amplitude = 40.0 / (1 + wave);
+
+            for (int i = 0; i < length; i++)
+            {
+                profile[i] += amplitude * Math.Sin((i / period * Math.PI * 2) + phase);
+            }
+        }
+
+        // A little fine texture on top, as any real surface has.
+        for (int i = 0; i < length; i++)
+        {
+            profile[i] += (random.NextDouble() - 0.5) * 6;
+            profile[i] = Math.Clamp(profile[i] + 128, 0, 255);
+        }
+
+        return profile;
+    }
 
     /// <summary>A smoothed random profile, standing in for a picture with detail in it.</summary>
     private static double[] Scenery(int length, int seed)

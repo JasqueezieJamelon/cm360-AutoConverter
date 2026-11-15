@@ -29,6 +29,12 @@ internal static class Program
             return;
         }
 
+        if (args.Any(a => a is "--selftest"))
+        {
+            SelfTest.Run(ParseDataDirectory(args));
+            return;
+        }
+
         // One instance only: two copies would fight over the same hotkey and the same json files.
         using Mutex mutex = new(initiallyOwned: true, MutexName, out bool isFirstInstance);
         if (!isFirstInstance)

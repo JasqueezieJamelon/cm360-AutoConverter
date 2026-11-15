@@ -475,7 +475,7 @@ internal sealed class MainForm : Form
 
             storage.SaveSettings(settings);
 
-            using AutoCalibrateForm auto = new(input, settings, exePath, exeHash, existing);
+            using AutoCalibrateForm auto = new(input, settings, exePath, exeHash, storage.DataDirectory, existing);
             if (auto.ShowDialog(this) == DialogResult.OK && auto.Entry is not null)
             {
                 library.Upsert(auto.Entry);

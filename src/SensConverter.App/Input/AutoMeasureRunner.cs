@@ -48,19 +48,30 @@ internal static class AutoMeasureRunner
     public static AutoMeasureResult Run(
         bool measureVertical,
         Action<double>? onProgress = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        MeasurementDiagnostics? diagnostics = null)
     {
+        diagnostics?.Note("foreground at start: " + ScreenCapture.DescribeForeground());
+        diagnostics?.Note($"pointer acceleration: {(SyntheticMouse.IsPointerAccelerationOn() ? "ON" : "off")}");
+
         GrayFrame? first = CaptureSettled(out string error);
         if (first is null)
         {
+            diagnostics?.Note("first capture failed: " + error);
             return AutoMeasureResult.Failed(error);
         }
 
+        diagnostics?.Keep("start", first);
+        double[] previousProfile = first.ColumnProfile(1.0);
+        diagnostics?.Note(
+            $"captured {first.Width}x{first.Height}, detail {GrayFrame.Detail(previousProfile):F2}");
+
         AutoSpinSession spin = new();
-        spin.Begin(first.ColumnProfile(1.0));
+        spin.Begin(previousProfile);
 
         if (spin.Phase == AutoPhase.Failed)
         {
+            diagnostics?.Note("could not start: " + spin.Failure);
             return AutoMeasureResult.Failed(spin.Failure ?? "Could not start measuring.");
         }
 
@@ -79,6 +90,7 @@ internal static class AutoMeasureRunner
 
             if (!SyntheticMouse.Move(step.Dx, step.Dy))
             {
+                diagnostics?.Note("SendInput was refused");
                 return AutoMeasureResult.Failed(
                     "Windows would not let the mouse be moved. This usually means the game is "
                     + "running as administrator - either run this program as administrator too, or "
@@ -88,11 +100,36 @@ internal static class AutoMeasureRunner
             GrayFrame? frame = CaptureSettled(out error);
             if (frame is null)
             {
+                diagnostics?.Note("capture failed mid-run: " + error);
                 return AutoMeasureResult.Failed(error);
             }
 
-            spin.Observe(frame.ColumnProfile(1.0));
+            double[] profile = frame.ColumnProfile(1.0);
+
+            if (diagnostics is not null)
+            {
+                // Measured here as well as inside the session, so the log says what the picture
+                // did independently of what the session made of it.
+                ShiftMatch seen = ImageShift.Find(
+                    previousProfile, profile, Math.Max(ImageShift.MinOverlap, frame.Width / 2));
+
+                diagnostics.Note(
+                    $"sent {step.Dx,6} counts -> picture moved {seen.Shift,8:F2} px "
+                    + $"(score {seen.Score:F2}, confidence {seen.Confidence:F2}, "
+                    + $"{(seen.IsReliable ? "reliable" : "NOT reliable")})");
+
+                diagnostics.Keep($"after-{step.Dx}", frame);
+            }
+
+            previousProfile = profile;
+            spin.Observe(profile);
             onProgress?.Invoke(spin.Progress * (measureVertical ? 0.8 : 1.0));
+        }
+
+        if (spin.Phase != AutoPhase.Done)
+        {
+            diagnostics?.Note("foreground at end: " + ScreenCapture.DescribeForeground());
+            diagnostics?.Note("gave up: " + spin.Failure);
         }
 
         if (spin.Phase != AutoPhase.Done)

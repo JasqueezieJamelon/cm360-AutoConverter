@@ -36,6 +36,44 @@ internal static partial class ScreenCapture
     public static IntPtr ForegroundWindow() => GetForegroundWindow();
 
     /// <summary>
+    /// Describes the window in front, for the diagnostics file. Which program this turns out to be
+    /// is usually the whole answer when a measurement fails: if it is not the game, nothing else
+    /// matters.
+    /// </summary>
+    public static string DescribeForeground()
+    {
+        IntPtr window = GetForegroundWindow();
+        if (window == IntPtr.Zero)
+        {
+            return "no foreground window";
+        }
+
+        string process = "unknown";
+        string title = string.Empty;
+        try
+        {
+            _ = GetWindowThreadProcessId(window, out uint processId);
+            using System.Diagnostics.Process owner = System.Diagnostics.Process.GetProcessById((int)processId);
+            process = owner.ProcessName;
+            title = owner.MainWindowTitle;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            // The process went away between asking for its id and asking about it.
+        }
+
+        string size = GetClientRect(window, out Rect client)
+            ? $"{client.Right}x{client.Bottom}"
+            : "unknown size";
+
+        bool isOurs = process.Equals(
+            System.Diagnostics.Process.GetCurrentProcess().ProcessName,
+            StringComparison.OrdinalIgnoreCase);
+
+        return $"{process}.exe \"{title}\" client {size}{(isOurs ? "  <-- THIS PROGRAM, not the game" : string.Empty)}";
+    }
+
+    /// <summary>
     /// Grabs the middle of the foreground window. Returns null when there is nothing usable to
     /// capture, with <paramref name="error"/> saying why in words for the user.
     /// </summary>
@@ -193,4 +231,8 @@ internal static partial class ScreenCapture
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ClientToScreen(IntPtr window, ref Point point);
+
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetWindowThreadProcessId(IntPtr window, out uint processId);
 }

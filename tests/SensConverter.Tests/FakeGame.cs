@@ -64,8 +64,10 @@ internal sealed class FakeGame
         // A 360 of panorama is about 3.3 screen widths for a normal field of view. A test can
         // stretch it, which simulates a view that never does come back round.
         PanoramaWidth = (int)Math.Round(width * panoramaWidths);
-        panorama = Scenery(PanoramaWidth, detail, seed);
-        verticalStrip = Scenery(height * 8, detail, seed + 977);
+        // How broad the shapes are, tied to what fills the screen rather than to the array length,
+        // because that is the scale the matching actually works at.
+        panorama = Scenery(PanoramaWidth, detail, seed, broadness: Math.Max(2, width / 30));
+        verticalStrip = Scenery(height * 8, detail, seed + 977, broadness: Math.Max(2, height / 30));
         pitchPixels = verticalStrip.Length / 2.0;
     }
 
@@ -173,10 +175,18 @@ internal sealed class FakeGame
     }
 
     /// <summary>
-    /// Scenery: a smoothed random walk. Smoothed so that neighbouring pixels are related, the way
-    /// a photograph's are, which is what makes sub-pixel matching meaningful.
+    /// Scenery built the way a real view is: a few broad shapes - hills, walls, blocks of light and
+    /// shade - with finer texture laid over them.
+    ///
+    /// The broad shapes matter and are not decoration. They are what gives a real picture a wide
+    /// match peak, and a simulated game made only of fine noise has an unnaturally sharp one. A
+    /// test built on noise alone passed happily while the real thing failed on every game, because
+    /// the matching treated the slope of that wide peak as a rival and trusted nothing.
+    ///
+    /// The wave periods are deliberately not multiples of each other, so the panorama does not
+    /// repeat and the view comes back round in exactly one place.
     /// </summary>
-    private static double[] Scenery(int length, double detail, int seed)
+    private static double[] Scenery(int length, double detail, int seed, int broadness)
     {
         Random random = new(seed);
         double[] raw = new double[length];
@@ -185,18 +195,18 @@ internal sealed class FakeGame
             raw[i] = random.NextDouble();
         }
 
+        // Smoothing random detail with a wide window is what gives broad shapes without the
+        // panorama ever repeating itself. Building it out of a few sine waves instead would look
+        // right locally but make the far side of the turn resemble the near side, and the
+        // measurement would honestly, and wrongly, find its way "back" after half a circle.
+        double[] broad = Smooth(Smooth(raw, broadness), broadness);
+        double[] fine = Smooth(raw, 2);
+
         double[] smoothed = new double[length];
-        const int window = 3;
         for (int i = 0; i < length; i++)
         {
-            double sum = 0;
-            for (int k = -window; k <= window; k++)
-            {
-                int index = ((i + k) % length + length) % length;
-                sum += raw[index];
-            }
-
-            smoothed[i] = sum / ((window * 2) + 1);
+            // Mostly broad shape, a little fine texture - the proportions of a real scene.
+            smoothed[i] = (broad[i] * 1.0) + (fine[i] * 0.25);
         }
 
         double mean = smoothed.Average();
@@ -210,6 +220,26 @@ internal sealed class FakeGame
         for (int i = 0; i < length; i++)
         {
             output[i] = Math.Clamp(128 + ((smoothed[i] - mean) / spread * detail), 0, 255);
+        }
+
+        return output;
+    }
+
+    /// <summary>A box blur that wraps round, so the panorama has no seam.</summary>
+    private static double[] Smooth(double[] values, int window)
+    {
+        int radius = Math.Max(1, window);
+        double[] output = new double[values.Length];
+
+        for (int i = 0; i < values.Length; i++)
+        {
+            double sum = 0;
+            for (int k = -radius; k <= radius; k++)
+            {
+                sum += values[((i + k) % values.Length + values.Length) % values.Length];
+            }
+
+            output[i] = sum / ((radius * 2) + 1);
         }
 
         return output;
